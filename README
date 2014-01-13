@@ -1,4 +1,6 @@
-Currently under heavy development...
-
-This arduino project does a 32point FHT on microphone data (730Hz on a atmega328 @ 16MHz) and drives 3 PWM pins hooked up to RGB LEDs.
+This arduino project does a 32 point FHT on microphone data (32 samples @ 730Hz on a atmega328 @ 16MHz) and drives 3 PWM pins hooked up to RGB LEDs.
 Supports reading from IR remote control buttons.
+
+Only tested on Arduino ATmega328. But should run on other ATmega hardware with minor tweaks.
+Currently under heavy development... Code clean up is under way. New features to come. RF data linking between units.
+Teensy 3.1 port soon (for larger FHT bin size while still oversampling).

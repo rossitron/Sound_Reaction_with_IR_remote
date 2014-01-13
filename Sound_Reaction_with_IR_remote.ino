@@ -1,5 +1,3 @@
-// Copyright notices at bottom
-
 #define Debug                  // Uncomment for debug info on serial port
 #define RedPin             6
 #define GreenPin           5           
@@ -159,7 +157,7 @@ void loop()
         byte m = ADCL;           // fetch adc data low
         byte j = ADCH;           // fetch adc data high
         int k = (j << 8) | m;    // form into an int
-        k -= 0x1FF;              // form into a signed int at the midrange point of mic input (511 = 0x1FF, 512 = 0x200;)
+        k -= 0x01FF;              // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
         k <<= 6;                 // form into a 16b signed int
         fht_input[i] = k;        // put real data into bins
       }
