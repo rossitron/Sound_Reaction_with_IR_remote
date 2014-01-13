@@ -12,30 +12,29 @@
 #define PrintInterval  33334   // serial port print interval in uS
 #define ButtonInterval 16667   // interval in uS to check for new button presses
 #define PeakArrayMin       0   // min value for peak autoscaling
-#define ADCBYTE1        0xf5   // reset the adc, freq  = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-#define ADCBYTE2        0xe5   // set the adc to free running mode, freq  = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCReset        0xf5   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCFreeRun      0xe5   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 // #define ADCBYTE?     0x?7   // freq = 1/128, 125 kHz/ 13.5 =~  9 kHz sampling rate
 // #define ADCBYTE?     0x?6   // freq  = 1/64, 250 kHz/ 13.5 =~ 18.5 kHz sampling rate
 
-#define MultiSample       30   // Number of audio/FHT samples are done before the largest values seen are used for determining RGB PWM levels.
-/* Approx PWM update freq @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
+#define MultiSample       30   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
+/* Approx PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
 14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
 27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
-*** Use 30Hz or 24Hz for filming. 45-82Hz for human eyes ***
-*/
+*** Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***/
 
 #define RedMinLimit      384
 #define GreenMinLimit    128
 #define BlueMinLimit     384
 
 #ifdef Debug
-  #define SerialBuad   2666667 // putty works at odd bitrates like 2666667
+  #define SerialBuad   2666667 // PuTTY works at odd bitrates like 2666667 (both Win7 x64 and Ubuntu 12.04 32bit work fine)
   #define ANSIMax         24*2 // max char length of charts, doubled because of half blocks
 #endif
 
 #include <FHT.h>
 #include <IRremote.h>
-#include <EEPROM.h>            // used for saving mode between power cycles
+#include <EEPROM.h>            // used for saving settings between power cycles
 
 unsigned int OutputGreen = 0;
 unsigned int OutputRed = 0;
@@ -97,7 +96,7 @@ void setup()
   pinMode(BluePin, OUTPUT);
   pinMode(IR_POW_PIN, OUTPUT); // IR sensor power pin is on I/O pin
   digitalWrite(IR_POW_PIN, HIGH); // turn on IR sensor
-  ADCSRA = ADCBYTE2; // set the adc to free running mode
+  ADCSRA = ADCFreeRun; // set the adc to free running mode
   ADMUX = 0x40; // use adc0
   DIDR0 = 0x01; // turn off the digital input for adc0
   irrecv.enableIRIn(); // Start the receiver
@@ -160,7 +159,7 @@ void loop()
       for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples
       {
         while(!(ADCSRA & 0x10)); // wait for adc to be ready
-        ADCSRA = ADCBYTE1;       // reset the adc
+        ADCSRA = ADCReset;       // reset the adc
         byte m = ADCL;           // fetch adc data low
         byte j = ADCH;           // fetch adc data high
         int k = (j << 8) | m;    // form into an int
