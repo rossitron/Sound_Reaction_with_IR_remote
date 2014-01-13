@@ -1,9 +1,12 @@
+// GPLv3 
+// Copyright 2014 Ross Melville
+
 #define Debug                  // Uncomment for debug info on serial port
 #define RedPin             6
 #define GreenPin           5           
 #define BluePin            3
 #define IR_RECV_PIN        2
-#define IR_POW_PIN         4
+#define IR_POW_PIN         4   // IR receiver powered off GPIO pin
 #define LIN_OUT            1   // use linear fht output function
 #define FHT_N             32   // set to 32 point fht
 #define PrintInterval  33334   // serial port print interval in uS
@@ -11,11 +14,15 @@
 #define PeakArrayMin       0   // min value for peak autoscaling
 #define ADCBYTE1        0xf5   // reset the adc, freq  = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 #define ADCBYTE2        0xe5   // set the adc to free running mode, freq  = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-// #define ADCBYTE?  0x?7   // freq = 1/128, 125 kHz/ 13.5 =~  9 kHz sampling rate
-// #define ADCBYTE?  0x?6   // freq  = 1/64, 250 kHz/ 13.5 =~ 18.5 kHz sampling rate
+// #define ADCBYTE?     0x?7   // freq = 1/128, 125 kHz/ 13.5 =~  9 kHz sampling rate
+// #define ADCBYTE?     0x?6   // freq  = 1/64, 250 kHz/ 13.5 =~ 18.5 kHz sampling rate
 
-#define Multisample 9 // @ 16MHz: 4 = 162Hz divides even by 490Hz, 5 = 135Hz, 6 = 116Hz, 7 = 102Hz, 8 = 90Hz, 9 = 81Hz divides even by 490Hz
-                      // 10 = 74Hz, 11 = 68Hz, 12 = 62Hz, 13 = 58Hz, 14 = 54Hz divides even by 490Hz, 15 = 50Hz, 16 = 47Hz, 17 = 45Hz
+#define MultiSample       30   // Number of audio/FHT samples are done before the largest values seen are used for determining RGB PWM levels.
+/* Approx PWM update freq @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
+14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
+27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
+*** Use 30Hz or 24Hz for filming. 45-82Hz for human eyes ***
+*/
 
 #define RedMinLimit      384
 #define GreenMinLimit    128
@@ -28,7 +35,7 @@
 
 #include <FHT.h>
 #include <IRremote.h>
-#include <EEPROM.h>  // used for saving mode between power cycles
+#include <EEPROM.h>            // used for saving mode between power cycles
 
 unsigned int OutputGreen = 0;
 unsigned int OutputRed = 0;
@@ -36,7 +43,7 @@ unsigned int OutputBlue = 0;
 unsigned int RedPeak = 0;
 unsigned int GreenPeak = 0;
 unsigned int BluePeak = 0;
-unsigned int RedMin = 65535; // set to max so a new min is always found the first time
+unsigned int RedMin = 65535;   // set to max so a new min is always found the first time
 unsigned int GreenMin = 65535;
 unsigned int BlueMin = 65535;
 unsigned int RedFilterStorage = 0;
@@ -53,7 +60,7 @@ unsigned int MinArray[FHT_N/2];
   unsigned int PrintingArray[FHT_N/2];
   unsigned int PrintingPeakArray[FHT_N/2];
   unsigned int PrintingMinArray[FHT_N/2];
-  unsigned int LoopTimeArray[Multisample];
+  unsigned int LoopTimeArray[MultiSample];
   unsigned int TimeError = 0;
   unsigned int PeakRaw = 0;
   byte FoundPeakArray[FHT_N/2];
@@ -264,7 +271,7 @@ void loop()
         else {ModeCounter--;}
       }
       
-      if (SampleCounter == Multisample)
+      if (SampleCounter == MultiSample)
       {
         for (byte Index = 0; Index < (FHT_N/2); Index++)
         {
@@ -517,7 +524,7 @@ void loop()
             {
               TimeNow = micros();
               float LoopTimeFloater = LoopTimeArray[1];
-              float Hz = 1000000 / (LoopTimeFloater * Multisample);
+              float Hz = 1000000 / (LoopTimeFloater * MultiSample);
               
               Serial.print(TimeNow - TimeExitPrint);
               Serial.println("µS print intvl");
@@ -530,7 +537,7 @@ void loop()
             }
             TimeEnterPrint = TimeEnterLoop;
             /*
-            for (byte x = 0; x < Multisample; x ++)
+            for (byte x = 0; x < MultiSample; x ++)
             {
               Serial.print(LoopTimeArray[x]);
               Serial.print(" ");
@@ -1079,6 +1086,28 @@ void ResetLEDValues()
   }
 }
 
+/*
+ * IRhashdecode - decode an arbitrary IR code.
+ * Instead of decoding using a standard encoding scheme
+ * (e.g. Sony, NEC, RC5), the code is hashed to a 32-bit value.
+ *
+ * An IR detector/demodulator must be connected to the input RECV_PIN.
+ * This uses the IRremote library: http://arcfn.com/2009/08/multi-protocol-infrared-remote-library.html
+ *
+ * The algorithm: look at the sequence of MARK signals, and see if each one
+ * is shorter (0), the same length (1), or longer (2) than the previous.
+ * Do the same with the SPACE signals.  Hszh the resulting sequence of 0's,
+ * 1's, and 2's to a 32-bit value.  This will give a unique value for each
+ * different code (probably), for most code systems.
+ *
+ * You're better off using real decoding than this technique, but this is
+ * useful if you don't have a decoding algorithm.
+ *
+ * Copyright 2010 Ken Shirriff
+ * http://arcfn.com
+ */
+
+
 // Compare two tick values, returning 0 if newval is shorter,
 // 1 if newval is equal, and 2 if newval is longer
 // Use a tolerance of 20%
@@ -1112,24 +1141,4 @@ unsigned long decodeHash(decode_results *results) {
   return hash;
 }
 
-/*
- * IRhashdecode - decode an arbitrary IR code.
- * Instead of decoding using a standard encoding scheme
- * (e.g. Sony, NEC, RC5), the code is hashed to a 32-bit value.
- *
- * An IR detector/demodulator must be connected to the input RECV_PIN.
- * This uses the IRremote library: http://arcfn.com/2009/08/multi-protocol-infrared-remote-library.html
- *
- * The algorithm: look at the sequence of MARK signals, and see if each one
- * is shorter (0), the same length (1), or longer (2) than the previous.
- * Do the same with the SPACE signals.  Hszh the resulting sequence of 0's,
- * 1's, and 2's to a 32-bit value.  This will give a unique value for each
- * different code (probably), for most code systems.
- *
- * You're better off using real decoding than this technique, but this is
- * useful if you don't have a decoding algorithm.
- *
- * Copyright 2010 Ken Shirriff
- * http://arcfn.com
- */
 
