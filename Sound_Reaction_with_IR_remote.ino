@@ -14,14 +14,14 @@
 #define PeakArrayMin       0   // min value for peak autoscaling
 #define ADCReset        0xf5   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 #define ADCFreeRun      0xe5   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-// #define ADCBYTE?     0x?7   // freq = 1/128, 125 kHz/ 13.5 =~  9 kHz sampling rate
-// #define ADCBYTE?     0x?6   // freq  = 1/64, 250 kHz/ 13.5 =~ 18.5 kHz sampling rate
 
-#define MultiSample       30   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
+#define MultiSample       9   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
 /* Approx PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
 14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
 27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
-*** Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***/
+*** With serial debug off: Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***
+Over ~80Hz PWM refresh and a lot of content starts to look like flickering instead of smooth visual reaction.
+*/
 
 #define RedMinLimit      384
 #define GreenMinLimit    128
@@ -32,8 +32,8 @@
   #define ANSIMax         24*2 // max char length of charts, doubled because of half blocks
 #endif
 
-#include <FHT.h>
-#include <IRremote.h>
+#include <FHT.h>               // http://wiki.openmusiclabs.com/wiki/ArduinoFHT
+#include <IRremote.h>          // https://github.com/shirriff/Arduino-IRremote & http://www.righto.com/2009/08/multi-protocol-infrared-remote-library.html
 #include <EEPROM.h>            // used for saving settings between power cycles
 
 unsigned int OutputGreen = 0;
@@ -85,7 +85,7 @@ IRrecv irrecv(IR_RECV_PIN);
 decode_results results;
 byte ButtonDecay = 0;
 #define ButtonDecayMax  7
-byte ButtonHandled = 1; // 2 = done with event, 0 = new, 1 = ready for new event 
+byte ButtonHandled = 1; // 2 = handled, done with event, 0 = new unhandled, 1 = handled, but ready for new event 
 String ButtonActive = "None";
 
 void setup()
@@ -100,46 +100,8 @@ void setup()
   ADMUX = 0x40; // use adc0
   DIDR0 = 0x01; // turn off the digital input for adc0
   irrecv.enableIRIn(); // Start the receiver
-  if (EEPROM.read(0) == 1) // mode EEPROM write finish?
-  {
-    Mode = EEPROM.read(1); // set the mode to the last used mode
-  }
-  else // power went out while writing, assume it's trash and set a new sane default
-  {
-    EEPROM.write(1, 0); // set the mode to default
-    EEPROM.write(0, 1); // write complete, data good
-  }
-  if (EEPROM.read(2) == 1) // color EEPROM write finish?
-  {
-    ColorWashSpeed = EEPROM.read(3); // set the color speed to the last used mode
-  }
-  else // power went out while writing, assume it's trash and set a new sane default
-  {
-    ColorWashSpeed = 10;
-    EEPROM.write(3, 10); // set the color speed to default
-    EEPROM.write(2, 1); // write complete, data good
-  }
-  
-  if (EEPROM.read(4) == 1) // Power on EEPROM write finish?
-  {
-    PowerOn = EEPROM.read(5); // set power on to the last used mode
-  }
-  else // power went out while writing, assume it's trash and set a new sane default
-  {
-    EEPROM.write(5, 1); // set power on to default
-    EEPROM.write(4, 1); // write complete, data good
-  }
-
+  CheckEEPROM();  // checks eeprom memory for safely written settings bits
   #ifdef Debug
-    if (EEPROM.read(256) == 1) // Full debug EEPROM write finish?
-    {
-      FullDebug = EEPROM.read(255); // set Full debug to the last used mode
-    }
-    else // power went out while writing, assume it's trash and set a new sane default
-    {
-      EEPROM.write(255, 0); // set Full debug to default
-      EEPROM.write(256, 1); // write complete, data good
-    }
     Serial.begin(SerialBuad); // in debug use the serial port
   #endif
 }
@@ -147,8 +109,8 @@ void setup()
 void loop()
 {
   #ifdef Debug
-    unsigned long TimeExitPrint = micros(); // need to load a vaule in the first time
-    unsigned long TimeEnterPrint = micros();
+    unsigned long TimeExitPrint = micros();     // need to load a vaule in the first time
+    unsigned long TimeEnterPrint = micros();    // need to load a vaule in the first time
   #endif
   unsigned long TimeExitButtonCheck = micros(); // need to load a vaule in the first time
   while(1)
@@ -163,14 +125,14 @@ void loop()
         byte m = ADCL;           // fetch adc data low
         byte j = ADCH;           // fetch adc data high
         int k = (j << 8) | m;    // form into an int
-        k -= 0x01FF;              // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
+        k -= 0x01FF;             // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
         k <<= 6;                 // form into a 16b signed int
         fht_input[i] = k;        // put real data into bins
       }
       fht_window();  // window the data for better frequency response
       fht_reorder(); // reorder the data before doing the fht
       fht_run();     // process the data in the fht
-      fht_mag_lin(); // take the output of the fht
+      fht_mag_lin(); // take the linear output of the fht
 
       for (byte Index = 0; Index < (FHT_N/2); Index++)
       {
@@ -1083,6 +1045,51 @@ void ResetLEDValues()
     PrintingPeakArray[Index] = 0;
     #endif
   }
+}
+
+void CheckEEPROM()
+{
+  if (EEPROM.read(0) == 1) // mode EEPROM write finish?
+  {
+    Mode = EEPROM.read(1); // set the mode to the last used mode
+  }
+  else // power went out while writing, assume it's trash and set a new sane default
+  {
+    EEPROM.write(1, 0); // set the mode to default
+    EEPROM.write(0, 1); // write complete, data good
+  }
+  if (EEPROM.read(2) == 1) // color EEPROM write finish?
+  {
+    ColorWashSpeed = EEPROM.read(3); // set the color speed to the last used mode
+  }
+  else // power went out while writing, assume it's trash and set a new sane default
+  {
+    ColorWashSpeed = 10;
+    EEPROM.write(3, 10); // set the color speed to default
+    EEPROM.write(2, 1); // write complete, data good
+  }
+  
+  if (EEPROM.read(4) == 1) // Power on EEPROM write finish?
+  {
+    PowerOn = EEPROM.read(5); // set power on to the last used mode
+  }
+  else // power went out while writing, assume it's trash and set a new sane default
+  {
+    EEPROM.write(5, 1); // set power on to default
+    EEPROM.write(4, 1); // write complete, data good
+  }
+
+  #ifdef Debug
+    if (EEPROM.read(256) == 1) // Full debug EEPROM write finish?
+    {
+      FullDebug = EEPROM.read(255); // set Full debug to the last used mode
+    }
+    else // power went out while writing, assume it's trash and set a new sane default
+    {
+      EEPROM.write(255, 0); // set Full debug to default
+      EEPROM.write(256, 1); // write complete, data good
+    }
+  #endif
 }
 
 /*
