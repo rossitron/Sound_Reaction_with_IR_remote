@@ -4,6 +4,7 @@ Yet another sound reactive Arduino project with RGB LEDs...
 
 Only tested on Arduino ATmega328 so far but should run on other ATmega hardware with minor tweaks. With debug serial turned on it complies to over 25kbytes. This project is currently under heavy development... Code clean up is under way. New features to come. RF data linking between units.
 Teensy 3.1 port soon:
+* Running out of space on the ATmega328
 * More MIPS and native 32bit math (much larger FHT bin size while still oversampling 8+ times)
 * Higher bit depth PWM timers (up to 16bit)
-
+* Built-in 13bit effective bit depth ADC (2 channel)

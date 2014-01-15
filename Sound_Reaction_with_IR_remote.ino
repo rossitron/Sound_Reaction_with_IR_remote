@@ -15,21 +15,20 @@
 #define ADCReset        0xf5   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 #define ADCFreeRun      0xe5   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 
-#define MultiSample       9   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
+#define MultiSample       9    // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
 /* Approx PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
 14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
 27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
 *** With serial debug off: Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***
-Over ~80Hz PWM refresh and a lot of content starts to look like flickering instead of smooth visual reaction.
-*/
+Over ~80Hz PWM refresh and a lot of content starts to look like flickering instead of smooth visual reaction. */
 
 #define RedMinLimit      384
 #define GreenMinLimit    128
 #define BlueMinLimit     384
 
 #ifdef Debug
-  #define SerialBuad   2666667 // PuTTY works at odd bitrates like 2666667 (both Win7 x64 and Ubuntu 12.04 32bit work fine)
-  #define ANSIMax         24*2 // max char length of charts, doubled because of half blocks
+  #define SerialBuad   2666667 // PuTTY works at odd bitrates like 2666667, 1843200 (both Win7 x64 and Ubuntu 12.04 32bit work fine)
+  #define ANSIMax         16*2 // max char length of charts, doubled because of half blocks
 #endif
 
 #include <FHT.h>               // http://wiki.openmusiclabs.com/wiki/ArduinoFHT
@@ -472,7 +471,7 @@ void loop()
         LoopTimeArray[SampleCounter] = TimeNow - TimeStarted;
         if (SampleCounter == 0)
         {
-          if ((TimeNow - TimeExitPrint) > PrintInterval - 5800)// - TimeError) //5500 - 
+          if ((TimeNow - TimeExitPrint) > PrintInterval - 5800) // Magic Number Warning! If changing the baud rate this and likely the interval need to be changed.
           {
             unsigned long TimeEnterLoop = micros();
             SerialColorWhite();
