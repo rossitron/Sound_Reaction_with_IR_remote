@@ -13,19 +13,19 @@
 #define PrintInterval  33334   // serial port print interval in uS
 #define ButtonInterval 16667   // interval in uS to check for new button presses
 #define PeakArrayMin       0   // min value for peak autoscaling
-#define ADCReset        0xf4   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-#define ADCFreeRun      0xe4   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-
-#define MultiSample       7    // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
-/* Approx PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
+#define ADCReset        0xf3   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCFreeRun      0xe3   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCSamples         6
+#define MultiSample        7   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
+/* ***NEED TO UPDATE THIS TABLE*** PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
 14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
 27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
 *** With serial debug off: Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***
 Over ~80Hz PWM refresh and a lot of content starts to look like flickering instead of smooth visual reaction. */
 
 #define RedMinLimit      1024
-#define GreenMinLimit    128
-#define BlueMinLimit     768
+#define GreenMinLimit    256
+#define BlueMinLimit     384
 
 #ifdef Debug
   #define SerialBuad   2666667 // PuTTY works at odd bitrates like 2666667, 1843200 (both Win7 x64 and Ubuntu 12.04 32bit work fine)
@@ -52,6 +52,7 @@ unsigned int BlueFilterStorage = 0;
 unsigned int MainArray[FHT_N/2];
 unsigned int PeakArray[FHT_N/2];
 unsigned int MinArray[FHT_N/2];
+int Sample[ADCSamples];
 
 #ifdef Debug
   unsigned long TimeStarted = micros();
@@ -120,17 +121,30 @@ void loop()
     #ifdef Debug
       TimeStarted = micros();
     #endif
-    for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples... get out of this loop ASAP
+    for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples...
     {
-      int k = ReadADC();
-      int r = ReadADC();
-      int o = ReadADC();
-      //int p = ReadADC();
-      //long kr = (k + r + o + p)/4;
-      long kr = (k + r + o)/3;
-      k = int(kr);
-      fht_input[i] = k;         // put real data into bins
-    }      
+      int S0 = ReadADC(); // not using an array is faster, oddly
+      int S1 = ReadADC();
+      int S2 = ReadADC();
+      int kr;
+      if (S0 > S1 && S0 > S2)
+      {
+        kr = (S1 + S2)/2;
+      }
+      else if (S1 > S0 && S1 > S2)
+      {
+        kr = (S0 + S2)/2;
+      }
+      else
+      {
+        kr = (S0 + S1)/2;
+      }
+
+      //long kr = (S0 + S1 + S2)/3;
+      //long kr = (k + r + o)/3;
+      //int k = ;
+      fht_input[i] = int(kr);         // put real data into bins
+    }
       fht_window();  // window the data for better frequency response
       fht_reorder(); // reorder the data before doing the fht
       fht_run();     // process the data in the fht
@@ -257,12 +271,12 @@ void loop()
           if (RedMap > RedPeak){RedPeak = RedMap;}
           if (RedMap < RedMin){RedMin = RedMap;}
           
-          unsigned int GreenMap = ((MainArray[2] * 0.5) + MainArray[3]);
+          unsigned int GreenMap = ((MainArray[2] * 0.5) + MainArray[3] + MainArray[4] + MainArray[5]);
           if (GreenMap > GreenPeak){GreenPeak = GreenMap;}
           if (GreenMap < GreenMin){GreenMin = GreenMap;}
           
           unsigned int BlueMap = 0;
-          for (byte BlueIndex = 4; BlueIndex < (FHT_N/2); BlueIndex++){BlueMap = (BlueMap + MainArray[BlueIndex]);}
+          for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++){BlueMap = (BlueMap + MainArray[BlueIndex]);}
           if (BlueMap > BluePeak){BluePeak = BlueMap;}
           if (BlueMap < BlueMin){BlueMin = BlueMap;}
           
@@ -421,9 +435,9 @@ void loop()
         {
           Mode2WashSpeedRed = (PeakArray[0] * 1.15) + (PeakArray[1] * 0.67) + (PeakArray[2] * 0.5);
           Mode2WashSpeedRed = Mode2WashSpeedRed - ((MainArray[0] * 1.15) + (MainArray[1] * 0.67) + (MainArray[2] * 0.5));
-          Mode2WashSpeedGreen = ((PeakArray[2] * 0.5) + PeakArray[3]) - ((MainArray[2] * 0.5) + MainArray[3]);
+          Mode2WashSpeedGreen = ((PeakArray[2] * 0.5) + PeakArray[3] + PeakArray[4] + PeakArray[5]) - ((MainArray[2] * 0.5) + MainArray[3] + MainArray[4] + MainArray[5]);
           Mode2WashSpeedBlue = 0;
-          for (byte BlueIndex = 4; BlueIndex < (FHT_N/2); BlueIndex++){Mode2WashSpeedBlue = (Mode2WashSpeedBlue + MainArray[BlueIndex]);}
+          for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++){Mode2WashSpeedBlue = (Mode2WashSpeedBlue + MainArray[BlueIndex]);}
         }
         if (PowerOn == 0)
         {
@@ -449,18 +463,12 @@ void loop()
           ResetLEDValues();
         }
         
-        if (AutoScaleCounter == 18)
+        if (AutoScaleCounter == 18) // Magic Number Warning!!!
         {
-          RedPeak = RedPeak * .985;
-          GreenPeak = GreenPeak * .985;
-          BluePeak = BluePeak * .985;
-          if (RedMin <= 20){RedMin++;}else {RedMin = RedMin * 1.05;}
-          if (GreenMin <= 20){GreenMin++;}else {GreenMin = GreenMin * 1.05;}
-          if (BlueMin <= 20){BlueMin++;}else {BlueMin = BlueMin * 1.05;}
           for (byte Index = 0; Index < (FHT_N/2); Index++)
           {
             if (PeakArray[Index] > PeakArrayMin){PeakArray[Index] = PeakArray[Index] * .985;}
-            if (MinArray[Index] <= 20){MinArray[Index]++;}else {MinArray[Index] = MinArray[Index] * 1.05;}
+            if (MinArray[Index] <= 20){MinArray[Index]++;}else {MinArray[Index] = MinArray[Index] * 1.05;} // Magic Number Warning!!!
           }
           AutoScaleCounter = 0;
         }
@@ -532,14 +540,14 @@ void loop()
               RedPrint = ((PrintingArray[0] * 1.15) + (PrintingArray[1] * 0.67) + (PrintingArray[2] * 0.5));
               RedPeakPrint = ((PrintingPeakArray[0] * 1.15) + (PrintingPeakArray[1] * 0.67) + (PrintingPeakArray[2] * 0.5));
               RedMinPrint = ((PrintingMinArray[0] * 1.15) + (PrintingMinArray[1] * 0.67) + (PrintingMinArray[2] * 0.5));
-              GreenPrint = ((PrintingArray[2] * 0.5) + PrintingArray[3]);
-              GreenPeakPrint = ((PrintingPeakArray[2] * 0.5) + PrintingPeakArray[3]);
-              GreenMinPrint = ((PrintingMinArray[2] * 0.5) + PrintingMinArray[3]);
+              GreenPrint = ((PrintingArray[2] * 0.5) + PrintingArray[3] + PrintingArray[4] + PrintingArray[5]);
+              GreenPeakPrint = ((PrintingPeakArray[2] * 0.5) + PrintingPeakArray[3] + PrintingPeakArray[4] + PrintingPeakArray[5]);
+              GreenMinPrint = ((PrintingMinArray[2] * 0.5) + PrintingMinArray[3] + PrintingMinArray[4] + PrintingMinArray[5]);
               BluePrint = 0;
               BluePeakPrint = 0;
               BlueMinPrint = 0;
               
-              for (byte BlueIndex = 4; BlueIndex < (FHT_N/2); BlueIndex++)
+              for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++)
               {
                 BluePrint = (BluePrint + PrintingArray[BlueIndex]);
                 BlueMinPrint = (BlueMinPrint + PrintingMinArray[BlueIndex]);
@@ -1102,7 +1110,7 @@ int ReadADC()
   j = 1; // setup j and m to catch while loop
   m = 0;
   while ((m <= 3 && j <= 1) || (m >= 252 && j == 2) || (m == 255 && j == 0) || (m == 255 && j == 3) || (m == 245 && j == 1) || (m == 244 && j == 1) || (m == 243 && j == 1) ||
-   (m == 246 && j == 1) || (m == 6 && j == 1) || (m == 4 && j == 1)) // Pops only _seem_ to be these values, after hours of testing...
+   (m == 246 && j == 1) || (m == 6 && j == 1) || (m == 4 && j == 1) || (m == 245 && j == 3) || (m == 254 && j == 3)) // Pops only _seem_ to be these values, after hours of testing...
   {
   #endif
     while(!(ADCSRA & 0x10));  // wait for adc to be ready
@@ -1117,6 +1125,7 @@ int ReadADC()
   k <<= 6;                  // form into a 16b signed int
   return k;
 }
+
 
 /*
  * IRhashdecode - decode an arbitrary IR code.
