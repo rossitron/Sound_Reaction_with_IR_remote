@@ -2,6 +2,7 @@
 // Copyright 2014 Ross Melville
 
 #define Debug                  // Uncomment for debug info on serial port
+#define ATmega328              // hack/fix for serial&IR interrupts making pops on ATmega328 ADC
 #define RedPin             6
 #define GreenPin           5           
 #define BluePin            3
@@ -12,19 +13,19 @@
 #define PrintInterval  33334   // serial port print interval in uS
 #define ButtonInterval 16667   // interval in uS to check for new button presses
 #define PeakArrayMin       0   // min value for peak autoscaling
-#define ADCReset        0xf5   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-#define ADCFreeRun      0xe5   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCReset        0xf4   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCFreeRun      0xe4   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 
-#define MultiSample       9    // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
+#define MultiSample       7    // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
 /* Approx PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
 14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
 27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
 *** With serial debug off: Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***
 Over ~80Hz PWM refresh and a lot of content starts to look like flickering instead of smooth visual reaction. */
 
-#define RedMinLimit      384
+#define RedMinLimit      1024
 #define GreenMinLimit    128
-#define BlueMinLimit     384
+#define BlueMinLimit     768
 
 #ifdef Debug
   #define SerialBuad   2666667 // PuTTY works at odd bitrates like 2666667, 1843200 (both Win7 x64 and Ubuntu 12.04 32bit work fine)
@@ -61,6 +62,7 @@ unsigned int MinArray[FHT_N/2];
   unsigned int LoopTimeArray[MultiSample];
   unsigned int TimeError = 0;
   unsigned int PeakRaw = 0;
+  
   byte FoundPeakArray[FHT_N/2];
   byte FoundMinArray[FHT_N/2];
   byte DisablePrint = 0;
@@ -111,23 +113,24 @@ void loop()
     unsigned long TimeExitPrint = micros();     // need to load a vaule in the first time
     unsigned long TimeEnterPrint = micros();    // need to load a vaule in the first time
   #endif
+  
   unsigned long TimeExitButtonCheck = micros(); // need to load a vaule in the first time
   while(1)
   {
     #ifdef Debug
       TimeStarted = micros();
     #endif
-      for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples
-      {
-        while(!(ADCSRA & 0x10)); // wait for adc to be ready
-        ADCSRA = ADCReset;       // reset the adc
-        byte m = ADCL;           // fetch adc data low
-        byte j = ADCH;           // fetch adc data high
-        int k = (j << 8) | m;    // form into an int
-        k -= 0x01FF;             // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
-        k <<= 6;                 // form into a 16b signed int
-        fht_input[i] = k;        // put real data into bins
-      }
+    for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples... get out of this loop ASAP
+    {
+      int k = ReadADC();
+      int r = ReadADC();
+      int o = ReadADC();
+      //int p = ReadADC();
+      //long kr = (k + r + o + p)/4;
+      long kr = (k + r + o)/3;
+      k = int(kr);
+      fht_input[i] = k;         // put real data into bins
+    }      
       fht_window();  // window the data for better frequency response
       fht_reorder(); // reorder the data before doing the fht
       fht_run();     // process the data in the fht
@@ -1089,6 +1092,30 @@ void CheckEEPROM()
       EEPROM.write(256, 1); // write complete, data good
     }
   #endif
+}
+
+int ReadADC()
+{
+  byte m;
+  byte j;
+  #ifdef ATmega328 // hack/fix for IR interrupts making pops on ATmega328 ADC
+  j = 1; // setup j and m to catch while loop
+  m = 0;
+  while ((m <= 3 && j <= 1) || (m >= 252 && j == 2) || (m == 255 && j == 0) || (m == 255 && j == 3) || (m == 245 && j == 1) || (m == 244 && j == 1) || (m == 243 && j == 1) ||
+   (m == 246 && j == 1) || (m == 6 && j == 1) || (m == 4 && j == 1)) // Pops only _seem_ to be these values, after hours of testing...
+  {
+  #endif
+    while(!(ADCSRA & 0x10));  // wait for adc to be ready
+    ADCSRA = ADCReset;        // reset the adc
+    m = ADCL;                 // fetch adc data low
+    j = ADCH;                 // fetch adc data high
+    #ifdef ATmega328          // hack/fix for IR interrupts making pops on ATmega328
+  }
+  #endif
+  int k = (j << 8) | m;     // form into an int
+  k -= 0x01FF;              // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
+  k <<= 6;                  // form into a 16b signed int
+  return k;
 }
 
 /*

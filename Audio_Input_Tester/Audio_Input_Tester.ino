@@ -96,8 +96,8 @@ int ReadADC()
   #ifdef ATmega328 // hack/fix for IR interrupts making pops on ATmega328 ADC
   byte j = 1; // setup j and m to catch while loop
   byte m = 0;
-  // int k; //Debug Testing
-  while ((m <= 1 && j == 1) || (m >= 254 && j == 2)) // Pops only _seem_ to be these values
+  int k; //Debug Testing
+  while ((m <= 1 && j == 1) || (m >= 254 && j == 2) || (m == 245 && j == 1) || (m == 244 && j == 1)) // Pops only _seem_ to be these values
   {
   #endif
     while(!(ADCSRA & 0x10));  // wait for adc to be ready
@@ -105,25 +105,25 @@ int ReadADC()
     m = ADCL;            // fetch adc data low
     delayMicroseconds(300);   // for testing, bug ***inducing*** 
     j = ADCH;            // fetch adc data high
-    /* //Debug Testing
+     //Debug Testing
     k = (j << 8) | m;     // form into an int
     k -= 0x01FF;              // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
     k <<= 6;                  // form into a 16b signed int
-    */
+    
     #ifdef ATmega328          // hack/fix for IR interrupts making pops on ATmega328
   }
   #endif
-  /* //Debug Testing
+   //Debug Testing
   if (abs(k) >= 600)
   {
     Serial.print(m);
     Serial.print("m,  j:");
     Serial.println(j);
-    delay(6000);
+    while(1){}
   }
-  */
-  int k = (j << 8) | m;     // form into an int
-  k -= 0x01FF;              // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
-  k <<= 6;                  // form into a 16b signed int
+  
+  //int k = (j << 8) | m;     // form into an int
+  //k -= 0x01FF;              // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
+  //k <<= 6;                  // form into a 16b signed int
   return k;
 }
