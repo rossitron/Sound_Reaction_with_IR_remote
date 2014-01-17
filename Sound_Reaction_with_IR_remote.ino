@@ -2,7 +2,7 @@
 // Copyright 2014 Ross Melville
 
 #define Debug                  // Uncomment for debug info on serial port
-#define ATmega328              // hack/fix for serial&IR interrupts making pops on ATmega328 ADC
+#define ATmega328              // hack/fix for serial&IR interrupts making pops on ATmega328 ADC, causes non-visable jitter of sampling freq and PWM update freq
 #define RedPin             6
 #define GreenPin           5           
 #define BluePin            3
@@ -13,8 +13,8 @@
 #define PrintInterval  33334   // serial port print interval in uS
 #define ButtonInterval 16667   // interval in uS to check for new button presses
 #define PeakArrayMin       0   // min value for peak autoscaling
-#define ADCReset        0xf3   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
-#define ADCFreeRun      0xe3   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCReset        0xf4   // reset the adc, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
+#define ADCFreeRun      0xe4   // set the adc to free running mode, freq = 1/32, 500 kHz/ 13.5 =~ 36 kHz sampling rate
 #define ADCSamples         6
 #define MultiSample        7   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
 /* ***NEED TO UPDATE THIS TABLE*** PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
@@ -114,7 +114,6 @@ void loop()
     unsigned long TimeExitPrint = micros();     // need to load a vaule in the first time
     unsigned long TimeEnterPrint = micros();    // need to load a vaule in the first time
   #endif
-  
   unsigned long TimeExitButtonCheck = micros(); // need to load a vaule in the first time
   while(1)
   {
@@ -125,24 +124,14 @@ void loop()
     {
       int S0 = ReadADC(); // not using an array is faster even with 6+ samples, oddly
       int S1 = ReadADC();
-      int S2 = ReadADC();
+      
+      int kr = (S0 + S1)/2;
+      /*
       int kr;
-      if (S0 > S1 && S0 > S2)
-      {
-        kr = (S1 + S2)/2;
-      }
-      else if (S1 > S0 && S1 > S2)
-      {
-        kr = (S0 + S2)/2;
-      }
-      else
-      {
-        kr = (S0 + S1)/2;
-      }
-
-      //long kr = (S0 + S1 + S2)/3;
-      //long kr = (k + r + o)/3;
-      //int k = ;
+      if (S0 > S1 && S0 > S2){kr = (S1 + S2)/2;}
+      else if (S1 > S0 && S1 > S2){kr = (S0 + S2)/2;}
+      else{kr = (S0 + S1)/2;}
+      */
       fht_input[i] = int(kr);         // put real data into bins
     }
     fht_window();  // window the data for better frequency response
@@ -548,13 +537,6 @@ void loop()
             BluePeakPrint = ArrayBlueParser(PrintingPeakArray);
             BlueMinPrint = ArrayBlueParser(PrintingMinArray);
             
-            for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++)
-            {
-              BluePrint = (BluePrint + PrintingArray[BlueIndex]);
-              BlueMinPrint = (BlueMinPrint + PrintingMinArray[BlueIndex]);
-              BluePeakPrint = (BluePeakPrint + PrintingPeakArray[BlueIndex]);
-            }
-            
             if (RedPeakPrint < RedMinLimit){RedPeakPrint = RedMinLimit;}
             if (GreenPeakPrint < GreenMinLimit){GreenPeakPrint = GreenMinLimit;}
             if (BluePeakPrint < BlueMinLimit){BluePeakPrint = BlueMinLimit;}
@@ -567,7 +549,9 @@ void loop()
           if (FullDebug == 1)
           {
             Serial.print("Raw Pk:");
-            Serial.print(PeakRaw);
+            unsigned int PeakRaw10bit = PeakRaw;
+            PeakRaw10bit >>= 6; 
+            Serial.print(PeakRaw10bit);
           }
           if (PeakRaw >= 15800){SerialColorWhite();}
           if (PeakRaw >= 13000 && PeakRaw < 15800){SerialColorWhite();}
@@ -1129,8 +1113,10 @@ int ReadADC()
   #ifdef ATmega328 // hack/fix for interrupts making pops on ATmega328 ADC
   j = 1; // setup j and m to catch while loop
   m = 0;
-  while ((m <= 3 && j <= 1) || (m >= 252 && j == 2) || (m == 255 && j == 0) || (m == 255 && j == 3) || (m == 245 && j == 1) || (m == 244 && j == 1) || (m == 243 && j == 1) ||
-   (m == 246 && j == 1) || (m == 6 && j == 1) || (m == 4 && j == 1) || (m == 245 && j == 3) || (m == 254 && j == 3)) // Pops only _seem_ to be these values, after hours of testing...
+  while ((m <= 3 && j <= 1) || (m >= 251 && j == 2) || (m == 255 && j == 0) || (m == 255 && j == 3) || (m == 245 && j == 1) || (m == 244 && j == 1) || 
+   (m == 243 && j == 1) || (m == 246 && j == 1) || (m == 6 && j == 1) || (m == 4 && j == 1) || (m == 245 && j == 3) || (m == 254 && j == 3) || 
+   (m == 10 && j == 1) || (m == 11 && j == 1) || (m == 7 && j == 1) || (m == 5 && j == 1) || (m == 154 && j == 1) || (m == 173 && j == 1) ||
+   (m == 127 && j == 2) || (m == 113 && j == 2)) // Pops only _seem_ to be these values, after days of testing...
   {
   #endif
     while(!(ADCSRA & 0x10));  // wait for adc to be ready
@@ -1145,7 +1131,6 @@ int ReadADC()
   k <<= 6;                  // form into a 16b signed int
   return k;
 }
-
 
 /*
  * IRhashdecode - decode an arbitrary IR code.
