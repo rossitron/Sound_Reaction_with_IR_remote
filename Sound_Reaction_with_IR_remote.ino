@@ -265,18 +265,19 @@ void loop()
           if (MinArray[Index] < PrintingMinArray[Index]){PrintingMinArray[Index] = MinArray[Index];}
         #endif
         }
+
         if (Mode == 0)
         {
-          unsigned int RedMap = ((MainArray[0] * 1.15) + (MainArray[1] * 0.67) + (MainArray[2] * 0.5));
+          unsigned int RedMap = ArrayRedParser(MainArray);
+          unsigned int GreenMap = ArrayGreenParser(MainArray);
+          unsigned int BlueMap = ArrayBlueParser(MainArray);
+          
           if (RedMap > RedPeak){RedPeak = RedMap;}
           if (RedMap < RedMin){RedMin = RedMap;}
           
-          unsigned int GreenMap = ((MainArray[2] * 0.5) + MainArray[3] + MainArray[4] + MainArray[5]);
           if (GreenMap > GreenPeak){GreenPeak = GreenMap;}
           if (GreenMap < GreenMin){GreenMin = GreenMap;}
           
-          unsigned int BlueMap = 0;
-          for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++){BlueMap = (BlueMap + MainArray[BlueIndex]);}
           if (BlueMap > BluePeak){BluePeak = BlueMap;}
           if (BlueMap < BlueMin){BlueMin = BlueMap;}
           
@@ -433,11 +434,10 @@ void loop()
         }
         if (Mode == 2)
         {
-          Mode2WashSpeedRed = (PeakArray[0] * 1.15) + (PeakArray[1] * 0.67) + (PeakArray[2] * 0.5);
-          Mode2WashSpeedRed = Mode2WashSpeedRed - ((MainArray[0] * 1.15) + (MainArray[1] * 0.67) + (MainArray[2] * 0.5));
-          Mode2WashSpeedGreen = ((PeakArray[2] * 0.5) + PeakArray[3] + PeakArray[4] + PeakArray[5]) - ((MainArray[2] * 0.5) + MainArray[3] + MainArray[4] + MainArray[5]);
-          Mode2WashSpeedBlue = 0;
-          for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++){Mode2WashSpeedBlue = (Mode2WashSpeedBlue + MainArray[BlueIndex]);}
+          Mode2WashSpeedRed = ArrayRedParser(PeakArray);
+          Mode2WashSpeedRed = Mode2WashSpeedRed - ArrayRedParser(MainArray);
+          Mode2WashSpeedGreen = ArrayGreenParser(PeakArray);
+          Mode2WashSpeedBlue = ArrayBlueParser(MainArray);
         }
         if (PowerOn == 0)
         {
@@ -537,15 +537,16 @@ void loop()
             }
             else if (Mode == 0)
             {
-              RedPrint = ((PrintingArray[0] * 1.15) + (PrintingArray[1] * 0.67) + (PrintingArray[2] * 0.5));
-              RedPeakPrint = ((PrintingPeakArray[0] * 1.15) + (PrintingPeakArray[1] * 0.67) + (PrintingPeakArray[2] * 0.5));
-              RedMinPrint = ((PrintingMinArray[0] * 1.15) + (PrintingMinArray[1] * 0.67) + (PrintingMinArray[2] * 0.5));
-              GreenPrint = ((PrintingArray[2] * 0.5) + PrintingArray[3] + PrintingArray[4] + PrintingArray[5]);
-              GreenPeakPrint = ((PrintingPeakArray[2] * 0.5) + PrintingPeakArray[3] + PrintingPeakArray[4] + PrintingPeakArray[5]);
-              GreenMinPrint = ((PrintingMinArray[2] * 0.5) + PrintingMinArray[3] + PrintingMinArray[4] + PrintingMinArray[5]);
-              BluePrint = 0;
-              BluePeakPrint = 0;
-              BlueMinPrint = 0;
+              
+              RedPrint = ArrayRedParser(PrintingArray);
+              RedPeakPrint = ArrayRedParser(PrintingPeakArray);
+              RedMinPrint = ArrayRedParser(PrintingMinArray);
+              GreenPrint = ArrayGreenParser(PrintingArray);
+              GreenPeakPrint = ArrayGreenParser(PrintingPeakArray);
+              GreenMinPrint = ArrayGreenParser(PrintingMinArray);
+              BluePrint = ArrayBlueParser(PrintingArray);
+              BluePeakPrint = ArrayBlueParser(PrintingPeakArray);
+              BlueMinPrint = ArrayBlueParser(PrintingMinArray);
               
               for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++)
               {
@@ -674,6 +675,25 @@ void loop()
       }
       #endif
   }
+}
+
+unsigned int ArrayRedParser(unsigned int Array[])
+{
+  unsigned int RedParser = ((Array[0]) + Array[1] + (Array[2] * 0.65));
+  return RedParser;
+}
+
+unsigned int ArrayGreenParser(unsigned int Array[])
+{
+  unsigned int GreenParser = ((Array[2] * 0.35) + Array[3] + (Array[4] * 0.75) + (Array[5]) * 0.25);
+  return GreenParser;
+}
+
+unsigned int ArrayBlueParser(unsigned int Array[])
+{
+  unsigned int BlueParser = ((Array[4] * 0.25) + (Array[5] * 0.75));
+  for (byte BlueIndex = 6; BlueIndex < (FHT_N/2); BlueIndex++){BlueParser = (BlueParser + Array[BlueIndex]);}
+  return BlueParser;
 }
 
 #ifdef Debug
@@ -1106,7 +1126,7 @@ int ReadADC()
 {
   byte m;
   byte j;
-  #ifdef ATmega328 // hack/fix for IR interrupts making pops on ATmega328 ADC
+  #ifdef ATmega328 // hack/fix for interrupts making pops on ATmega328 ADC
   j = 1; // setup j and m to catch while loop
   m = 0;
   while ((m <= 3 && j <= 1) || (m >= 252 && j == 2) || (m == 255 && j == 0) || (m == 255 && j == 3) || (m == 245 && j == 1) || (m == 244 && j == 1) || (m == 243 && j == 1) ||
