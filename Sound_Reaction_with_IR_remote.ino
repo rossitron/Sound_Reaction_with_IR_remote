@@ -118,10 +118,8 @@ void loop()
     #endif
     for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples...
     {
-      noInterrupts();     // get nasty pops/error on the measurements without doing this
       int S0 = ReadADC(); // not using an array is faster even with 6+ samples, oddly
       int S1 = ReadADC();
-      interrupts();
       int kr = (S0 + S1)/2;
       fht_input[i] = int(kr);         // put real data into bins
     }
@@ -1101,12 +1099,12 @@ void CheckEEPROM()
 
 int ReadADC()
 {
-  //noInterrupts();           // get nasty pops/error on the measurements without doing this
+  noInterrupts();           // get nasty pops/error on the measurements without doing this
   while(!(ADCSRA & 0x10));  // wait for adc to be ready
   ADCSRA = ADCReset;        // reset the adc
   byte LowByte = ADCL;      // fetch adc data low
   byte HighByte = ADCH;     // fetch adc data high
-  //interrupts();
+  interrupts();
   int Output = (HighByte << 8) | LowByte;  // form into an int
   Output -= 0x01FF;                        // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
   Output <<= 6;                            // form into a 16b signed int
