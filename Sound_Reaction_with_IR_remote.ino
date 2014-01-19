@@ -1,9 +1,12 @@
 // GPLv3 
 // Copyright 2014 Ross Melville
 
+// IRhashdecode - decode an arbitrary IR code.
+// Copyright 2010 Ken Shirriff
+
 #define Debug                  // Uncomment for debug info on serial port
 #define RedPin             6
-#define GreenPin           5           
+#define GreenPin           5
 #define BluePin            3
 #define IR_RECV_PIN        2
 #define IR_POW_PIN         4   // IR receiver powered off GPIO pin
@@ -12,14 +15,10 @@
 #define PrintInterval  33334   // serial port print interval in uS
 #define ButtonInterval 16667   // interval in uS to check for new button presses
 #define PeakArrayMin       0   // min value for peak autoscaling
-#define ADCReset        0xf4   // reset the adc, freq = 1000 kHz / 13.5 =~ 74 kHz sampling rate
-#define ADCFreeRun      0xe4   // set the adc to free running mode, freq = 1000 kHz / 13.5 =~ 74 kHz sampling rate
-#define ADCSamples         6
-#define MultiSample        8   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
-/* ***NEED TO UPDATE THIS TABLE*** PWM update rate @ 16MHz: 4 = 183Hz, 5 = 146Hz, 6 = 122Hz, 7 = 105Hz, 8 = 91Hz, 9 = 82Hz, 10 = 74Hz, 11 = 66Hz, 12 = 61Hz, 13 = 56Hz,
-14 = 52Hz, 15 = 49Hz, 16 = 46Hz, 17 = 44Hz, 18 = 41Hz, 19 = 38Hz, 20 = 36Hz, 21 = 34Hz, 22 = 33Hz, 23 = 32Hz, 24 = 30Hz, 25 = 29Hz, 26 = 28Hz,
-27 = 27Hz, 28 = 26Hz, 29 = 25Hz, 30 = 24Hz
-*** With serial debug off: Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***
+#define ADCReset        0xf5   // reset the adc, freq = 1000 kHz / 13.5 =~ 74 kHz sampling rate
+#define ADCFreeRun      0xe5   // set the adc to free running mode, freq = 1000 kHz / 13.5 =~ 74 kHz sampling rate
+#define MultiSample       10   // Number of audio/FHT loops are done before the largest values seen are used for determining RGB PWM levels.
+/* FHT Freq / MultiSample = PWM update Freq *** With serial debug off: Use 30Hz or 24Hz for video recording *** 45-82Hz for human eyes ***
 Over ~80Hz PWM refresh and a lot of content starts to look like flickering instead of smooth visual reaction. */
 
 #define RedMinLimit      1350
@@ -51,7 +50,6 @@ unsigned int BlueFilterStorage = 0;
 unsigned int MainArray[FHT_N/2];
 unsigned int PeakArray[FHT_N/2];
 unsigned int MinArray[FHT_N/2];
-int Sample[ADCSamples];  // if this isn't a global the complier barfs a strage r28/r29 error... shouldn't need to be one
 
 #ifdef Debug
   unsigned long TimeStarted = micros();
@@ -65,7 +63,7 @@ int Sample[ADCSamples];  // if this isn't a global the complier barfs a strage r
   
   byte FoundPeakArray[FHT_N/2];
   byte FoundMinArray[FHT_N/2];
-  byte DisablePrint = 1;
+  byte DisablePrint = 0;
   byte FullDebug = 0;
 #endif
 
@@ -81,6 +79,8 @@ byte RangeErrorBlue = 0;
 byte AutoScaleCounter = 0;
 byte SampleCounter = 0;
 byte PowerOn = 1;
+byte BadSample = 0;
+byte ADCTimeLast = 0;
 
 IRrecv irrecv(IR_RECV_PIN);
 decode_results results;
@@ -116,18 +116,11 @@ void loop()
     #ifdef Debug
     TimeStarted = micros();
     #endif
-    for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples...
-    {
-      int S0 = ReadADC(); // not using an array is faster even with 6+ samples, oddly
-      int S1 = ReadADC();
-      int kr = (S0 + S1)/2;
-      fht_input[i] = int(kr);         // put real data into bins
-    }
+    for (byte i = 0 ; i < FHT_N ; i++){fht_input[i] = ReadADC();} // save FHT_N samples...
     fht_window();  // window the data for better frequency response
     fht_reorder(); // reorder the data before doing the fht
     fht_run();     // process the data in the fht
     fht_mag_lin(); // take the linear output of the fht
-  
     for (byte Index = 0; Index < (FHT_N/2); Index++)
     {
       #ifdef Debug
@@ -445,7 +438,7 @@ void loop()
       {
         for (byte Index = 0; Index < (FHT_N/2); Index++)
         {
-          if (PeakArray[Index] > PeakArrayMin){PeakArray[Index] = PeakArray[Index] * .985;}
+          //if (PeakArray[Index] > PeakArrayMin){PeakArray[Index] = PeakArray[Index] * .985;}
           if (MinArray[Index] <= 20){MinArray[Index]++;}else {MinArray[Index] = MinArray[Index] * 1.05;} // Magic Number Warning!!!
         }
         AutoScaleCounter = 0;
@@ -481,7 +474,7 @@ void loop()
             // Hz Sample and Hz PWM are accurate to what the speed would be with printing off.
             // With printing on it will be that speed between the serial prints
             Serial.print(1000000 / LoopTimeFloater);
-            Serial.print("Hz Smpl, ");
+            Serial.print("Hz FHT, ");
             Serial.print(Hz);
             Serial.println("Hz PWM");
           }
@@ -516,7 +509,6 @@ void loop()
           }
           else if (Mode == 0)
           {
-            
             RedPrint = ArrayRedParser(PrintingArray);
             RedPeakPrint = ArrayRedParser(PrintingPeakArray);
             RedMinPrint = ArrayRedParser(PrintingMinArray);
@@ -542,11 +534,14 @@ void loop()
             unsigned int PeakRaw10bit = PeakRaw;
             PeakRaw10bit >>= 6; 
             Serial.print(PeakRaw10bit);
+            Serial.print(", ADCTime:");
+            Serial.println(ADCTimeLast);
           }
           if (PeakRaw >= 15800){SerialColorWhite();}
           if (PeakRaw >= 13000 && PeakRaw < 15800){SerialColorWhite();}
           PeakRaw = 0;
-          Serial.println();
+
+
           PrintChart();
           Serial.println();
           SerialColorRed();
@@ -646,6 +641,17 @@ void loop()
           TimeExitPrint = TimeNow;
           TimeLastPrintStart = TimePrintStart;
         }
+      }
+    }
+    else
+    {
+      
+      if (BadSample == 1)
+      {
+        Serial.begin(SerialBuad);
+        Serial.println(BadSample);
+        Serial.end();
+        BadSample = 0;
       }
     }
     #endif
@@ -1099,12 +1105,26 @@ void CheckEEPROM()
 
 int ReadADC()
 {
-  noInterrupts();           // get nasty pops/error on the measurements without doing this
-  while(!(ADCSRA & 0x10));  // wait for adc to be ready
-  ADCSRA = ADCReset;        // reset the adc
-  byte LowByte = ADCL;      // fetch adc data low
-  byte HighByte = ADCH;     // fetch adc data high
-  interrupts();
+  byte HighByte;
+  byte LowByte;
+  unsigned long ADCTimeBegin;
+  BadSample = 1; // setup while loop to retry on a bad sample
+  while (BadSample == 1)
+  {
+    noInterrupts();           // get lots more nasty pops/error on the measurements without doing this
+    ADCTimeBegin = micros();
+    while(!(ADCSRA & 0x10));  // wait for adc to be ready
+    ADCSRA = ADCReset;        // reset the adc
+    LowByte = ADCL;      // fetch adc data low
+    HighByte = ADCH;     // fetch adc data high
+    unsigned long ADCTime = micros() - ADCTimeBegin;
+    interrupts();
+    if (ADCTime <= 16) // took under 16uS? good sample
+    {
+      BadSample = 0; // good sample confirmed, will break loop now
+      ADCTimeLast = ADCTime;
+    }
+  }
   int Output = (HighByte << 8) | LowByte;  // form into an int
   Output -= 0x01FF;                        // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
   Output <<= 6;                            // form into a 16b signed int
