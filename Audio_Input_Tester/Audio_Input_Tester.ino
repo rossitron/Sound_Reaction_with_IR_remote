@@ -17,6 +17,8 @@ unsigned int PrintingPeakArray[FHT_N/2];
 unsigned int PeakRaw = 0;
 unsigned long ADCTimeLast;
 byte BadSample = 0;
+int Delta = 0;
+int PeakDelta = 0;
 
 void setup()
 {
@@ -30,25 +32,35 @@ void loop()
   unsigned long TimeExitPrint = micros();     // need to load a vaule in the first time
   while(1)
   {
+    int LastValue = 32767;
+    BadSample = 0;
     for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples... get out of this loop ASAP
     {
-      int k = ReadADC();
-      int r = ReadADC();
-      //int o = ReadADC();
-      //int n = ReadADC();
-      //int p = ReadADC();
-      //int q = ReadADC();
-      //int t = ReadADC();
-      int kr;
-      kr = (k + r)/2;
-      //kr = (kr + o)/2;
-      //kr = (kr + n)/2;
-      //kr = (kr + p)/2;
-      //kr = (kr + q)/2;
-      //kr = (kr + t)/2;
-      fht_input[i] = kr;         // put real data into bins
+      int Sample;
+      if (LastValue != 32767)
+      {
+        Sample = ReadADC();
+        Delta = Sample - LastValue;
+        if (abs(Delta) > 100) // looks like a pop, don't process this sample
+        {
+          BadSample = 1;
+        }
+        if (abs(Delta) > PeakDelta)
+        {
+          PeakDelta = abs(Delta);
+        }
+      }
+      else
+      {
+        Sample = ReadADC();
+      }
+      LastValue = Sample;
+      Sample -= 0x01FF;                        // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
+      Sample <<= 6;                            // form into a 16b signed int
+      fht_input[i] = Sample;         // put real data into bins
     }
-    
+    if (BadSample == 0)
+    {
     fht_window();  // window the data for better frequency response
     fht_reorder(); // reorder the data before doing the fht
     fht_run();     // process the data in the fht
@@ -86,10 +98,13 @@ void loop()
         }
         PrintBlocks(map(PrintingArray[Index], 0, PrintingPeakArray[Index], 0, ANSIMax));
       }
+      Serial.println(Delta);
+      Serial.println(PeakDelta);
       Serial.end();
       for (byte Index = 0; Index < (FHT_N/2); Index++){PrintingArray[Index] = 0;} // Clean the main array
       TimeExitPrint = micros();
     } 
+  }
   }
 }
 
@@ -125,25 +140,16 @@ byte PrintBlocks(byte blocks)
 
 int ReadADC()
 {
-  byte HighByte;
-  byte LowByte;
-  unsigned long ADCTimeBegin;
-  BadSample = 1; // setup while loop to retry on a bad sample
-  while (BadSample == 1)
-  {
-    noInterrupts();           // get lots more nasty pops/error on the measurements without doing this
-    ADCTimeBegin = micros();
-    while(!(ADCSRA & 0x10));  // wait for adc to be ready
-    ADCSRA = ADCReset;        // reset the adc
-    LowByte = ADCL;      // fetch adc data low
-    HighByte = ADCH;     // fetch adc data high
-    unsigned long ADCTime = micros() - ADCTimeBegin;
-    interrupts();
-    if (ADCTime <= 16) // took under 16uS? good sample
-    {
-      BadSample = 0;
-      ADCTimeLast = ADCTime;
-    }
+  noInterrupts();           // get lots more nasty pops/error on the measurements without doing this
+  while(!(ADCSRA & 0x10));  // wait for adc to be ready
+  ADCSRA = ADCReset;        // reset the adc
+  int Output = ADCW;        // read the adc
+  interrupts();
+  return Output;
+}
+
+
+    /*
     else
     {
       Serial.begin(SerialBuad);
@@ -156,9 +162,4 @@ int ReadADC()
       Serial.end();
       delay(3000);
     }
-  }
-  int Output = (HighByte << 8) | LowByte;  // form into an int
-  Output -= 0x01FF;                        // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
-  Output <<= 6;                            // form into a 16b signed int
-  return Output;
-}
+    */
