@@ -60,7 +60,7 @@ unsigned int MinArray[FHT_N/2];
   unsigned int LoopTimeArray[MultiSample];
   unsigned int TimeError = 0;
   unsigned int PeakRaw = 0;
-  
+
   byte FoundPeakArray[FHT_N/2];
   byte FoundMinArray[FHT_N/2];
   byte DisablePrint = 0;
@@ -81,6 +81,9 @@ byte SampleCounter = 0;
 byte PowerOn = 1;
 byte BadSample = 0;
 byte ADCTimeLast = 0;
+int Delta = 0;
+int PeakDelta = 0;
+unsigned int NumOfPops = 0;
 
 IRrecv irrecv(IR_RECV_PIN);
 decode_results results;
@@ -116,7 +119,36 @@ void loop()
     #ifdef Debug
     TimeStarted = micros();
     #endif
-    for (byte i = 0 ; i < FHT_N ; i++){fht_input[i] = ReadADC();} // save FHT_N samples...
+    int LastValue = 32767;
+    BadSample = 0;
+    for (byte i = 0 ; i < FHT_N ; i++) // save FHT_N samples... get out of this loop ASAP
+    {
+      int Sample;
+      if (LastValue != 32767)
+      {
+        Sample = ReadADC();
+        Delta = Sample - LastValue;
+        if (abs(Delta) > 100) // looks like a pop, don't process this sample
+        {
+          BadSample = 1;
+          NumOfPops++;
+        }
+        if (abs(Delta) > PeakDelta)
+        {
+          PeakDelta = abs(Delta);
+        }
+      }
+      else
+      {
+        Sample = ReadADC();
+      }
+      LastValue = Sample;
+      Sample -= 0x01FF;                        // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
+      Sample <<= 6;                            // form into a 16b signed int
+      fht_input[i] = Sample;         // put real data into bins
+    }
+    if (BadSample == 0)
+    {
     fht_window();  // window the data for better frequency response
     fht_reorder(); // reorder the data before doing the fht
     fht_run();     // process the data in the fht
@@ -523,8 +555,8 @@ void loop()
             if (GreenPeakPrint < GreenMinLimit){GreenPeakPrint = GreenMinLimit;}
             if (BluePeakPrint < BlueMinLimit){BluePeakPrint = BlueMinLimit;}
           }
-          if (PeakRaw >= 15800){SerialColorRed();} // change peak prints to red when the input gets very close to clipping (15876 real peak)
-          if (PeakRaw >= 13000 && PeakRaw < 15800){SerialColorYellow();}
+          if (PeakRaw >= 14000){SerialColorRed();} // change peak prints to red when the input gets very close to clipping (15876 real peak)
+          if (PeakRaw >= 12500 && PeakRaw < 14000){SerialColorYellow();}
           PrintBlocks(map(PeakRaw, 0, 15800, 0, ANSIMax)); 
           if (map(PeakRaw, 0, 15800, 0, ANSIMax*6) <= ANSIMax){PrintBlocks(map(PeakRaw, 0, 15800, 0, ANSIMax*6));}
           else {PrintBlocks(ANSIMax);}
@@ -532,16 +564,17 @@ void loop()
           {
             Serial.print("Raw Pk:");
             unsigned int PeakRaw10bit = PeakRaw;
-            PeakRaw10bit >>= 6; 
-            Serial.print(PeakRaw10bit);
-            Serial.print(", ADCTime:");
-            Serial.println(ADCTimeLast);
+            PeakRaw10bit >>= 6;
+            Serial.println(PeakRaw10bit);
+            Serial.print("PeakDelta:");
+            Serial.print(PeakDelta);
+            Serial.print(", Pops:");
+            Serial.println(NumOfPops);
           }
-          if (PeakRaw >= 15800){SerialColorWhite();}
-          if (PeakRaw >= 13000 && PeakRaw < 15800){SerialColorWhite();}
+          else{Serial.println();}
+          if (PeakRaw >= 14000){SerialColorWhite();}
+          if (PeakRaw >= 12500 && PeakRaw < 14000){SerialColorWhite();}
           PeakRaw = 0;
-
-
           PrintChart();
           Serial.println();
           SerialColorRed();
@@ -560,7 +593,6 @@ void loop()
             Serial.print("Pk:");
             Serial.println(RedPeakPrint);
           }
-          
           SerialColorGreen();
           if (map(GreenPrint, GreenMinPrint, GreenPeakPrint, 0, ANSIMax) != -1)
           {
@@ -655,6 +687,7 @@ void loop()
       }
     }
     #endif
+  }
   }
 }
 
@@ -1040,6 +1073,7 @@ byte PrintBlocks(byte blocks)
 
 void ResetLEDValues()
 {
+  PeakDelta = 0;
   RedPeak = 0;
   GreenPeak = 0;
   BluePeak = 0;
@@ -1105,29 +1139,11 @@ void CheckEEPROM()
 
 int ReadADC()
 {
-  byte HighByte;
-  byte LowByte;
-  unsigned long ADCTimeBegin;
-  BadSample = 1; // setup while loop to retry on a bad sample
-  while (BadSample == 1)
-  {
-    noInterrupts();           // get lots more nasty pops/error on the measurements without doing this
-    ADCTimeBegin = micros();
-    while(!(ADCSRA & 0x10));  // wait for adc to be ready
-    ADCSRA = ADCReset;        // reset the adc
-    LowByte = ADCL;      // fetch adc data low
-    HighByte = ADCH;     // fetch adc data high
-    unsigned long ADCTime = micros() - ADCTimeBegin;
-    interrupts();
-    if (ADCTime <= 16) // took under 16uS? good sample
-    {
-      BadSample = 0; // good sample confirmed, will break loop now
-      ADCTimeLast = ADCTime;
-    }
-  }
-  int Output = (HighByte << 8) | LowByte;  // form into an int
-  Output -= 0x01FF;                        // form into a signed int at the midrange point of mic input (511 = 0x01FF, 512 = 0x0200;)
-  Output <<= 6;                            // form into a 16b signed int
+  noInterrupts();           // get lots more nasty pops/error on the measurements without doing this
+  while(!(ADCSRA & 0x10));  // wait for adc to be ready
+  ADCSRA = ADCReset;        // reset the adc
+  int Output = ADCW;        // read the adc
+  interrupts();
   return Output;
 }
 
